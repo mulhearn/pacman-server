@@ -1,40 +1,39 @@
 #ifndef pacman_cmdserver_cc
 #define pacman_cmdserver_cc
 
-#include <chrono>
-#include <thread>
-
+#include <stdlib.h>
 #include <stdio.h>
-#include <fcntl.h>
-#include <cstring>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
 #include <zmq.h>
-#include <cerrno>
 
-//#include "addr_conf.hh"
-//#include "dma.hh"
 #include "message_format.hh"
 #include "larpix.hh"
-//#include "pacman.hh"
+#include "tx_buffer.hh"
+#include "pacman.hh"
 
 #define REP_SOCKET_BINDING "tcp://*:5555"
 #define ECHO_SOCKET_BINDING "tcp://*:5554"
 
-void send_reply(zmq_msg_t* rep_msg, zmq_msg_t* echo_msg, void* rep_socket, void* echo_socket) {
+void send_messages(zmq_msg_t* req_msg, zmq_msg_t* rep_msg, zmq_msg_t* echo_msg, void* rep_socket, void* echo_socket) {
+  zmq_msg_init(echo_msg);
+  zmq_msg_copy(echo_msg, req_msg);
+  zmq_msg_send(echo_msg, echo_socket, 0);
+
   zmq_msg_init(echo_msg);
   zmq_msg_copy(echo_msg, rep_msg);
-
   zmq_msg_send(echo_msg, echo_socket, 0);
+
   zmq_msg_send(rep_msg, rep_socket, 0);
 
+  zmq_msg_close(req_msg);
   zmq_msg_close(echo_msg);
   zmq_msg_close(rep_msg);
 }
   
 int main(int argc, char* argv[]){
-  printf("Start pacman-cmdserver\n");
+  printf("INFO:  Starting pacman_cmdserver...\n");
+  printf("INFO:  Initializing TX buffer.\n");
+  tx_buffer_init();
+  printf("INFO:  Initializing ZMQ sockets.\n");
   // create zmq connection
   void* ctx = zmq_ctx_new();
   void* rep_socket = zmq_socket(ctx, ZMQ_REP);
@@ -44,16 +43,23 @@ int main(int argc, char* argv[]){
   zmq_setsockopt(rep_socket, ZMQ_SNDTIMEO, &timeo, sizeof(timeo));
   zmq_setsockopt(echo_socket, ZMQ_SNDTIMEO, &timeo, sizeof(timeo));  
   if (zmq_bind(rep_socket, REP_SOCKET_BINDING) != 0) {
-    printf("Failed to bind socket (%s)!\n", REP_SOCKET_BINDING);
+    printf("ERROR:  Failed to bind socket (%s)!\n", REP_SOCKET_BINDING);
+    printf("ERROR:  (Perhaps pacman_cmdserver is already running?)\n");
     return 1;
   }
   if (zmq_bind(echo_socket, ECHO_SOCKET_BINDING) != 0) {
-    printf("Failed to bind socket (%s)!\n", ECHO_SOCKET_BINDING);
+    printf("ERROR:  Failed to bind socket (%s)!\n", ECHO_SOCKET_BINDING);
     return 1;
   }
-  printf("ZMQ socket(s) created\n");
-  
+  printf("INFO:  ZMQ sockets created successfully.\n");
 
+  printf("INFO:  initializing PACMAN hardware drivers\n");
+  if (pacman_init() == EXIT_FAILURE){
+    printf("ERROR:  Failed to initializing PACMAN hardware drivers\n");
+    return 1;
+  }  
+  printf("INFO: PACMAN HW driver initialization was successful.\n");
+  
   // initialize zmq msg
   int req_msg_nbytes;
   uint32_t tx_words = 0;
@@ -63,7 +69,7 @@ int main(int argc, char* argv[]){
   printf("Begin loop\n");
   while (1) {
     printf("\n");
-    //std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    pacman_poll_tx();
     
     // wait for msg
     printf("Waiting for new message...\n");
@@ -103,15 +109,16 @@ int main(int argc, char* argv[]){
       case WORD_TYPE_WRITE: {
         // set pacman reg
         uint32_t* reg = get_req_word_write_reg(word);
-        uint32_t val = 0; 
-	set_rep_word_write(reply_word, reg, &val);
+        uint32_t* val = get_req_word_write_val(word);
+	pacman_write(*reg, *val);
+	set_rep_word_write(reply_word, reg, val);
         break;
       }
       
       case WORD_TYPE_READ: {
         // read pacman reg
         uint32_t* reg = get_req_word_read_reg(word);	
-        uint32_t val = 0;
+        uint32_t val = pacman_read(*reg);
 	set_rep_word_read(reply_word, reg, &val);	
         break;
       }
@@ -119,9 +126,8 @@ int main(int argc, char* argv[]){
       case WORD_TYPE_TX: {
 	// transmit data
 	char* io_channel = get_req_word_tx_channel(word);	
-	uint64_t* data = get_req_word_tx_data(word);
-	//
-	//tx_buffer(io_channel, data);
+	uint64_t* data = get_req_word_tx_data(word);	
+	tx_buffer_in(*io_channel-1, data);
 	set_rep_word_tx(reply_word, io_channel, data);
         //printf("TX: %d 0x%016x\n",*io_channel,*data);
 	break;
@@ -134,12 +140,12 @@ int main(int argc, char* argv[]){
     }
 
     // send reply
-    printf("Sending reply...\n");
+    printf("Sending messages...\n");
     //print_msg(reply);
-    send_reply(rep_msg, echo_msg, rep_socket, echo_socket);
-    printf("Reply sent!\n");
+    send_messages(req_msg, rep_msg, echo_msg, rep_socket, echo_socket);
+    printf("Messages sent!\n");
       
-    zmq_msg_close(req_msg);
+
   }
   return 0;
 }

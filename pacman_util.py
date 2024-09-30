@@ -1,5 +1,4 @@
-#!/home/mulhearn/miniconda3/envs/py2/bin/python
-# ##!/usr/bin/python2
+#!/usr/bin/python2
 '''
 A lightweight, standalone python script to interface with the pacman servers
 See help text for more details::
@@ -111,6 +110,18 @@ def parse_msg(msg):
     ]
     return header, words
 
+def log_msg(msg, log):
+    if (not log):
+        return
+    header, words = parse_msg(msg)
+    if (header[0]=='REQUEST'):
+        with open(log, "a") as f:
+            for word in words:
+                if (word[0] == 'WRITE'):
+                    f.write(word[0] + " " + hex(word[1]) + " " + hex(word[2])+"\n")
+                elif (word[0] == 'READ'):
+                    f.write(word[0] + " " + hex(word[1]) + "\n");
+
 def print_msg(msg):
     header, words = parse_msg(msg)
     header_strings, word_strings = list(), list()
@@ -155,7 +166,7 @@ def main(**kwargs):
         for command,args in sorted(list(kwargs.items())):
             if not args: continue
             if not command in ('ping','write','read','tx', 'rx', 'listen'): continue
-            
+
             # connect to pacman server
             connection = None
             socket = None
@@ -179,9 +190,14 @@ def main(**kwargs):
                 for max_messages in args:
                     socket.setsockopt(zmq.SUBSCRIBE, b'')
                     msg_counter = 0
+                    log = ""
+                    if (kwargs['log']):
+                        log = kwargs['log'][0]
+                        print("logging read and write requests to ", log)
                     while max_messages[0] < 0 or msg_counter < max_messages[0]:
                         msg = socket.recv()
                         print_msg(msg)
+                        log_msg(msg, log)
                         msg_counter += 1
                         print('message count {}/{}'.format(msg_counter, max_messages[0]))
                     socket.setsockopt(zmq.UNSUBSCRIBE, b'')
@@ -250,7 +266,7 @@ if __name__ == '__main__':
                         help='''
                         timeout in seconds for server response (default=%(default)ss)
                         ''')
-    
+
     parser.add_argument('--ping', action='append_const', const=True,
                         help='''
                         pings command server and prints response
@@ -274,6 +290,10 @@ if __name__ == '__main__':
     parser.add_argument('--listen', nargs=1, type=_int_parser,
                         action='append', metavar=('N'), help='''
                         print handled pacman command server messages to stdout, for N negative, runs indefinitely
+                        ''')
+    parser.add_argument('--log', nargs=1, metavar=('LOGFILE'),
+                        help='''
+                        log read and write requests to LOGFILE
                         ''')
     args = parser.parse_args()
 
