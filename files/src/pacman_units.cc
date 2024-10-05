@@ -5,8 +5,8 @@
 
 int test_tx_buffer(){
   int success = 1;
-  uint64_t tx_data;
-  uint64_t output[TX_BUFFER_BYTES/8];
+  uint32_t tx_data[2];
+  uint32_t output[TX_BUFFER_BYTES/4];
   
   printf("INFO:  ****** running tx buffer unit test. *******\n");
   tx_buffer_init(1);
@@ -16,17 +16,20 @@ int test_tx_buffer(){
   success &= (tx_buffer_out(NULL)==0);
   
   for (int i=0; i<3; i++){
-    tx_data = (uint64_t) 0xAA00+i;
-    success &= (tx_buffer_in(5, &tx_data)==1);
+    tx_data[0] = 0xBBBBAA00+i;
+    tx_data[1] = 0xDDDDCCCC;
+    success &= (tx_buffer_in(5, tx_data)==1);
   }
-  tx_data = (uint64_t) 0xBB;
-  tx_buffer_in(1, &tx_data);
+  tx_data[0] = 0x11111111;
+  tx_data[1] = 0x22222222;
+  tx_buffer_in(1, tx_data);
 
   for (int i=0; i<TX_BUFFER_DEPTH-1; i++){
-    tx_data = (uint64_t) i;    
-    success &= (tx_buffer_in(10, &tx_data)==1);
-  }
-  success &= (tx_buffer_in(10, &tx_data)==0);
+    tx_data[0] = 0xAAAA0000+i;
+    tx_data[1] = 0xBBBB0000+i;
+    success &= (tx_buffer_in(10, tx_data)==1);
+  }  
+  success &= (tx_buffer_in(10, tx_data)==0);
 
   tx_buffer_status();
 
@@ -58,15 +61,17 @@ int test_tx_buffer(){
   printf("INFO:  Filling the entire buffer.\n");
   
   // completely fill the entire buffer:
-  tx_data = 0;
+  tx_data[0] = 0;
+  tx_data[1] = 0;
   for (unsigned i=0; i<TX_BUFFER_CHAN; i++){
     for (unsigned j=0; j<TX_BUFFER_DEPTH-1; j++){
-      tx_data = (j<<8) + i;
-      success &= (tx_buffer_in(i, &tx_data)==1);
+      tx_data[0] = (j<<8) + i+1;
+      tx_data[1] = (j<<8) + 0x00000033;
+      success &= (tx_buffer_in(i, tx_data)==1);
     }
   }
   // how about this wafer thin mint?
-  success &= (tx_buffer_in(20, &tx_data)==0);
+  success &= (tx_buffer_in(20, tx_data)==0);
 
   if (success==0){
     printf("ERROR:  failed filing the entire buffer.\n");
@@ -76,15 +81,21 @@ int test_tx_buffer(){
   }
 
   printf("INFO:  Draining the entire buffer and checking contents.\n");
-  
+
   // completely drain the entire buffer:
   for (int i=0; i<TX_BUFFER_DEPTH-1; i++){
-    success &= (tx_buffer_out(&output)==1);
-    success &= (output[0] == 0x000000FFFFFFFFFF);
+    success &= (tx_buffer_out(output)==1);
+
+    //printf("INFO:  printing output...\n");
+    //tx_buffer_print_output(output);
+    
+    success &= (output[0] == 0xFFFFFFFF);
+    success &= (output[1] == 0x000000FF);
     for (int j=0; j<TX_BUFFER_CHAN; j++){
-      success &= ((output[2+j]&0xFF) == j);
-      success &= ((output[2+j]>>8) == i);
-      //printf("DEBUG: j:%x %lx\n", j, output[2+j]);
+      success &= ((output[4+2*j+0]&0xFF) == j+1);
+      success &= ((output[4+2*j+0]>>8) == i);
+      success &= ((output[4+2*j+1]&0xFF) == 0x33);
+      success &= ((output[4+2*j+1]>>8) == i);
     }    
   }
   // check we are empty:
@@ -97,7 +108,6 @@ int test_tx_buffer(){
     printf("INFO:  ...success so far.\n");
   }
 
-  
   if (success==0){
     printf("ERROR:  tx buffer unit test FAILED.\n");
     return 0;
@@ -109,7 +119,7 @@ int test_tx_buffer(){
 
 int test_rx_buffer(){
   int success = 1;
-  uint64_t rx_data[2];
+  uint32_t rx_data[4];
   
   printf("INFO:  ****** running rx buffer unit test. ****** \n");
   rx_buffer_init(1);
@@ -118,8 +128,10 @@ int test_rx_buffer(){
   
   rx_buffer_status();
 
-  rx_data[0]=0xBBBBBBBBAAAAAAAA;
-  rx_data[1]=0xDDDDDDDDCCCCCCCC;
+  rx_data[0]=0xAAAAAAAA;
+  rx_data[1]=0xBBBBBBBB;
+  rx_data[2]=0xCCCCCCCC;
+  rx_data[3]=0xDDDDDDDD;
 
   success &= (rx_buffer_in(rx_data)==1);
   success &= (rx_buffer_in(rx_data)==1);

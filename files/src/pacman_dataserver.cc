@@ -14,8 +14,8 @@
 #include <zmq.h>
 #include <ctime>
 
-//#include "addr_conf.hh"
-//#include "dma.hh"
+#include "addr_conf.hh"
+#include "dma.hh"
 #include "larpix.hh"
 #include "message_format.hh"
 
@@ -26,6 +26,15 @@ volatile bool msg_ready = true;
 
 void clear_msg(void*, void*) {
     msg_ready = true;
+}
+
+void* restart_dma(uint32_t* dma, uint32_t curr) {
+  printf("Restarting DMA...\n");
+  dma_set(dma, DMA_S2MM_CTRL_REG, DMA_RST); // reset
+  dma_set(dma, DMA_S2MM_CTRL_REG, 0); // halt
+  dma_set(dma, DMA_S2MM_CURR_REG, curr); // set curr
+  dma_set(dma, DMA_S2MM_CTRL_REG, DMA_RUN); // run
+  dma_s2mm_status(dma);
 }
 
 int main(int argc, char* argv[]){
@@ -45,6 +54,24 @@ int main(int argc, char* argv[]){
   }
   printf("ZMQ socket created\n");
   
+  // initialize dma
+  int dh = open("/dev/mem", O_RDWR|O_SYNC);
+  uint32_t* dma = (uint32_t*)mmap(NULL, DMA_LEN, PROT_READ|PROT_WRITE, MAP_SHARED, dh, DMA_ADDR);
+  uint32_t* dma_rx = (uint32_t*)mmap(NULL, DMA_RX_MAXLEN, PROT_READ|PROT_WRITE, MAP_SHARED, dh, DMA_RX_ADDR);
+  dma_desc* buffer_start = init_circular_buffer(dma_rx, DMA_RX_ADDR, DMA_RX_MAXLEN, LARPIX_PACKET_LEN);
+  dma_desc* buffer_end = buffer_start->prev;
+  uint32_t  buffer_desc_size = sizeof(*buffer_start);
+  dma_desc* curr = buffer_start;
+  dma_desc* prev = buffer_start;
+  restart_dma(dma, curr->addr);
+  dma_set(dma, DMA_S2MM_TAIL_REG, buffer_end->addr);
+  uint32_t dma_status = dma_get(dma, DMA_S2MM_STAT_REG);
+  if ( dma_status & DMA_HALTED ) {
+    printf("Error starting DMA\n");
+    return 2;
+  }
+  printf("DMA started\n");
+
   auto start_time = std::chrono::high_resolution_clock::now().time_since_epoch();
   auto last_time  = start_time;
   auto now = start_time;
@@ -61,13 +88,31 @@ int main(int argc, char* argv[]){
   bool err = false;
   printf("Begin loop\n");
   while(1) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-    
+    //std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // collect all complete transfers (up to max message size)
+    while(dma_desc_cmplt(curr->desc)) {
+      curr = curr->next;
+      words++;
+      if (curr == prev->prev) break; // reached end of buffer
+      if (words == MAX_MSG_LEN) break; // reached max message size
+    }
+    if (curr == prev) continue; // no new words
     total_words += words;
     now = std::chrono::high_resolution_clock::now().time_since_epoch();
+    //printf("DMA_CURR: %p, DMA_TAIL: %p\n",dma_get(dma,DMA_S2MM_CURR_REG), dma_get(dma,DMA_S2MM_TAIL_REG));
+    printf("\n");
+    printf("New data available\n");
+    printf("Words: %d, total: %d, rate: %.02fMb/s (%.02fMb/s)\n",
+           words,
+           total_words,
+           (std::chrono::duration<double>)words/(now-last_time) * LARPIX_PACKET_LEN * 8 / 1e6,
+           (std::chrono::duration<double>)total_words/(now-start_time) * LARPIX_PACKET_LEN * 8 / 1e6
+           );
+    // wait for last message transfer to complete (up to some timeout)
+    last_time = now;
+    while (!msg_ready && (std::chrono::high_resolution_clock::now().time_since_epoch() < last_sent_msg + std::chrono::milliseconds(timeo))) { ; }
 
-    words = 4;
-    
     // create new message
     init_msg(msg_buffer, words, MSG_TYPE_DATA);
     msg_bytes = get_msg_bytes(words);      
@@ -78,12 +123,29 @@ int main(int argc, char* argv[]){
     // copy data into message
     while(word_idx < words) {
 	word = get_word(msg_buffer, word_idx);
-	unsigned chan = (word_idx & 0xFF);
-	uint32_t dummy[] = {0xABCD0044+(chan<<8), 0xABCDABCD, 0xABCDABCD, 0xABCDABCD};
-        memcpy(word, &dummy, 16);
+        memcpy(word, prev->word, 16);
+      
+	// reset word
+	if (dma_get(prev->desc, DESC_STAT) & (DESC_INTERR | DESC_SLVERR | DESC_DECERR)) {
+            printf("Descriptor error!\n");
+            err = true;
+            dma_desc_print(prev->desc);
+            // reset
+            dma_set(prev->desc, DESC_ADDR, prev->word_addr);
+            dma_set(prev->desc, DESC_NEXT, (prev->next)->addr);
+            dma_desc_print(prev->desc);
+	}
+	dma_set(prev->desc, DESC_STAT, 0);
+
+	// get next word
 	word_idx++;
+	prev = prev->next;
     }
+    // update dma
+    dma_set(dma, DMA_S2MM_TAIL_REG, (prev->prev)->addr);
     
+    // send message
+    //print_msg(msg_buffer);
     msg_ready = false;    
     if (zmq_msg_send(pub_msg, pub_socket, 0) < 0)
         printf("Error sending message!\n");
@@ -95,6 +157,16 @@ int main(int argc, char* argv[]){
     printf("Data messages sent: %d\n", sent_msgs);
     sent_msgs = 0;
     words = 0;
+
+    prev = curr;
+    if (err || dma_get(dma, DMA_S2MM_STAT_REG) & DMA_ERR_IRQ) {
+      // try reset if errors occurred
+      printf("An error occurred!\n");
+      dma_s2mm_status(dma);
+      restart_dma(dma, curr->addr);
+      dma_set(dma, DMA_S2MM_TAIL_REG, (prev->prev)->addr);
+      err = false;
+    }
   }
   return 0;
 }

@@ -13,11 +13,11 @@ void tx_buffer_init(int verbose=0);
 
 void tx_buffer_status();
 
-unsigned tx_buffer_in(unsigned char chan, uint64_t * tx_data);
+unsigned tx_buffer_in(unsigned char chan, uint32_t * tx_data);
 
-unsigned tx_buffer_out(void * dst);
+unsigned tx_buffer_out(uint32_t * dst);
 
-void tx_buffer_print_output(void * src);
+void tx_buffer_print_output(uint32_t * src);
 
 unsigned tx_buffer_count(unsigned char chan);
 

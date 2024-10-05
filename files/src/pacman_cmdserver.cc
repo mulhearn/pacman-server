@@ -53,12 +53,17 @@ int main(int argc, char* argv[]){
   }
   printf("INFO:  ZMQ sockets created successfully.\n");
 
-  printf("INFO:  initializing PACMAN hardware drivers\n");
-  if (pacman_init() == EXIT_FAILURE){
-    printf("ERROR:  Failed to initializing PACMAN hardware drivers\n");
+  printf("INFO:  Initializing PACMAN hardware drivers\n");
+  if (pacman_init(1) == EXIT_FAILURE){
+    printf("ERROR:  Failed to initialize PACMAN hardware drivers\n");
     return 1;
-  }  
-  printf("INFO: PACMAN HW driver initialization was successful.\n");
+  }
+  if (pacman_init_tx(1) == EXIT_FAILURE){
+    printf("ERROR:  Failed to initialize PACMAN TX driver\n");
+    return 1;
+  }
+  
+  printf("INFO:  PACMAN HW driver initialization was successful.\n");
   
   // initialize zmq msg
   int req_msg_nbytes;
@@ -72,7 +77,7 @@ int main(int argc, char* argv[]){
     pacman_poll_tx();
     
     // wait for msg
-    printf("Waiting for new message...\n");
+    printf("INFO:  Waiting for new message...\n");
     zmq_msg_init(req_msg);
     req_msg_nbytes = zmq_msg_recv(req_msg, rep_socket, 0);
     if (req_msg_nbytes<0) {
@@ -126,10 +131,17 @@ int main(int argc, char* argv[]){
       case WORD_TYPE_TX: {
 	// transmit data
 	char* io_channel = get_req_word_tx_channel(word);	
-	uint64_t* data = get_req_word_tx_data(word);	
-	tx_buffer_in(*io_channel-1, data);
-	set_rep_word_tx(reply_word, io_channel, data);
-        //printf("TX: %d 0x%016x\n",*io_channel,*data);
+	// UGLY... FIXME INTERFACE TX_BUFFER / PACMAN-SERVER:
+	uint64_t* pdata = get_req_word_tx_data(word);
+	uint64_t data = *pdata;
+
+	//printf("DEBUG:  DATA REQUEST:  %d 0x%lx\n", *io_channel, data);	
+	uint32_t dat[2] = {0,0};
+	dat[0] = (data & 0x00000000FFFFFFFF);
+	dat[1] = ((data>>32) & 0x00000000FFFFFFFF);
+	printf("DEBUG:  TX: %d 0x%08x %08x\n",*io_channel,dat[1],dat[0]);
+	tx_buffer_in((*io_channel)-1, dat);
+	set_rep_word_tx(reply_word, io_channel, pdata);
 	break;
       }
       default: 

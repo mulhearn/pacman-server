@@ -1,5 +1,5 @@
-#ifndef LARPIX_HH
-#define LARPIX_HH
+#ifndef larpix_hh
+#define larpix_hh
 
 #define LARPIX_PACKET_LEN 16 // bytes
 

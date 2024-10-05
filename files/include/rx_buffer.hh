@@ -11,11 +11,11 @@ void rx_buffer_init(int verbose=0);
 
 void rx_buffer_status();
 
-unsigned rx_buffer_in(void * src);
+unsigned rx_buffer_in(uint32_t * src);
 
-unsigned rx_buffer_out(void * dst);
+unsigned rx_buffer_out(uint32_t * dst);
 
-void rx_buffer_print_output(void * src);
+void rx_buffer_print_output(uint32_t * src);
 
 unsigned rx_buffer_count();
 

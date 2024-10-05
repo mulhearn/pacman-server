@@ -3,7 +3,11 @@
 
 #include <stdint.h>
 
-int pacman_init(int verbose=0);
+int pacman_init(int verbose=1);
+
+int pacman_init_tx(int verbose=1, int skip_reset=0);
+
+int pacman_init_rx(int verbose=1, int skip_reset=0);
 
 int pacman_poll_rx();
 

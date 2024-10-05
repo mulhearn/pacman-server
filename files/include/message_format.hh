@@ -1,5 +1,5 @@
-#ifndef MESSAGE_FORMAT_HH
-#define MESSAGE_FORMAT_HH
+#ifndef message_format_hh
+#define message_format_hh
 
 #include <cstdint>
 
