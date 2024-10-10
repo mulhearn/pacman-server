@@ -39,12 +39,19 @@ void chan_map_rx(uint32_t * buf){
     return;
 
   unsigned chan = (buf[0]>>8)&0xFF;
+  // legacy firmware starts at "1":
+  chan = chan - 1;
+
   unsigned nchan = chan;
-  if ((chan>8) && (chan < MAX_CHAN)){
+  if ((chan>=8) && (chan < MAX_CHAN)){
     unsigned toff = (chan-8)/3;
     unsigned uart = (chan-8)%3;
     nchan = 8 + 4*toff + uart;
   }
+
+  // legacy firmware starts at "1":
+  nchan = nchan + 1;
+  
   buf[0] &= 0xFFFF00FF;
   buf[0] |= ((nchan&0xFF)<<8);
 }
