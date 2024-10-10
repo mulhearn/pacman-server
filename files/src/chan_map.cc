@@ -11,7 +11,12 @@ void print_chan_map(){
   for (int i=0; i<rows; i++){
     for (int j=0; j<4; j++){
       unsigned chan = j*rows+i;
-      printf("%3d --> %d  ", chan, chan_map_tx(chan));
+      int mchan = chan_map_tx(chan);
+      if (mchan>=0){
+	printf("%3d --> %3d ", chan+1, chan_map_tx(chan)+1);
+      } else {
+	printf("%3d -->  -- ", chan+1);
+      }
     }
     printf("\n");
   }
@@ -42,12 +47,14 @@ void chan_map_rx(uint32_t * buf){
   // legacy firmware starts at "1":
   chan = chan - 1;
 
-  unsigned nchan = chan;
-  if ((chan>=8) && (chan < MAX_CHAN)){
-    unsigned toff = (chan-8)/3;
-    unsigned uart = (chan-8)%3;
-    nchan = 8 + 4*toff + uart;
+  if ((chan<8) || (chan >= MAX_CHAN)){
+    return;
   }
+  
+  unsigned nchan = chan;
+  unsigned toff = (chan-8)/3;
+  unsigned uart = (chan-8)%3;
+  nchan = 8 + 4*toff + uart;
 
   // legacy firmware starts at "1":
   nchan = nchan + 1;
