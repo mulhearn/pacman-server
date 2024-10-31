@@ -48,7 +48,6 @@ int main(int argc, char* argv[]){
   // ensure that buffer is consistent with larpix:
   assert((WORD_LEN) == (RX_BUFFER_BYTES));
   assert((WORD_LEN) == (LARPIX_WIDE_LEN));
-  assert((MAX_WORDS_MSG) == (RX_BUFFER_DEPTH));
 
   printf("INFO:  Starting pacman_dataserver...\n");
   printf("INFO:  Initializing RX buffer.\n");
@@ -80,16 +79,19 @@ int main(int argc, char* argv[]){
   zmq_msg_t* pub_msg = new zmq_msg_t();
   printf("Begin loop\n");
   while(1) {
-    usleep(10000);
     pacman_poll_rx();
 
     words = rx_buffer_count();
 
     if (words == 0){
       //printf("INFO: no new data received...\n");
+      usleep(10000);
       continue;
     }
     printf("INFO: Received new data, words = %d\n", words);
+
+    if (words > MAX_WORDS_MSG)
+      words = MAX_WORDS_MSG;
 
     // create new message
     init_msg(msg_buffer, words, MSG_TYPE_DATA);
