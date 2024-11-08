@@ -16,6 +16,9 @@ SRC_URI = "file://src \
            file://power_down.sh \
            file://README.md \
            file://pacman_util.py \
+           file://pump_socket.py \
+           file://dump_socket.py \
+           file://rep_socket.py \
 	   file://Makefile \
 		  "
                   
@@ -35,10 +38,18 @@ do_install() {
 	     install -d ${D}${bindir}
 	     install -m 0755 ${S}/pacman_cmdserver ${D}${bindir}
              install -m 0755 ${S}/pacman_dataserver ${D}${bindir}
+	     install -m 0755 ${S}/pacman_units ${D}${bindir}
+	     install -m 0755 ${S}/pacman_push ${D}${bindir}
+	     install -m 0755 ${S}/pacman_counter ${D}${bindir}
+	     install -m 0755 ${S}/zmq_loopback ${D}${bindir}
+	     install -m 0755 ${S}/zmq_test ${D}${bindir}
 
              install -d ${D}${homedir}
              install ${S}/README.md ${D}${homedir}
              install -m 0755 ${S}/pacman_util.py ${D}${homedir}
+	     install -m 0755 ${S}/pump_socket.py ${D}${homedir}
+	     install -m 0755 ${S}/dump_socket.py ${D}${homedir}
+	     install -m 0755 ${S}/rep_socket.py ${D}${homedir}	     
              install -m 0755 ${S}/power_up_tile.sh ${D}${homedir}
              install -m 0755 ${S}/report_power.sh ${D}${homedir}             
              install -m 0755 ${S}/power_down.sh ${D}${homedir}             
